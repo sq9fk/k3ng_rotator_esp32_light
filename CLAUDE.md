@@ -4,106 +4,123 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-K3NG Rotator Controller: an Arduino sketch that turns an Arduino/AVR (or Teensy, Due, Maple Mini, etc.) into an antenna
-rotator controller, emulating Yaesu GS-232A/B, Easycom, and DCU-1 control protocols so it can be driven by hamlib
-rotctl/rotctld, HRD, N1MM, PstRotator, and similar programs. It supports azimuth-only or azimuth/elevation rotators,
-many position sensor types (potentiometer, rotary/incremental encoders, digital compasses, accelerometers, absolute
-encoders), LCD/Nextion displays, GPS/RTC clock sync, moon/sun/satellite tracking, and a master/remote-slave mode for
-split sensor placement.
+`k3ng_rotator_esp32_light`: a fork of the [K3NG Rotator Controller](https://github.com/k3ng/k3ng_rotator_controller)
+trimmed to a single board and a "light" feature set, built with PlatformIO instead of the Arduino IDE.
 
-Full user documentation lives in the project wiki: https://github.com/k3ng/k3ng_rotator_controller/wiki — the code
-in this repo intentionally does not restate it.
+- **Board**: Arduino Nano ESP32 only. All other hardware profiles (M0UPU, WB6KCN, WB6KCN_K3NG, TEST, EA4TX_ARS_USB)
+  and AVR-only code (the stepper motor driver, which needs TimerOne/TimerFive/digitalWriteFast — none of which work
+  on ESP32) have been removed.
+- **Active feature set**: Yaesu GS-232B control-port emulation over both USB serial and WiFi (a new `FEATURE_WIFI`
+  TCP control port, since the Nano ESP32 has WiFi but no Ethernet jack), azimuth-only rotation via a pulse/impulse
+  position sensor (with a standard rotary encoder kept available as a compile-time alternative), and a 4-bit
+  parallel LCD (with a generic I2C LCD backpack kept available as a compile-time alternative).
+- **Removed outright** (not just left disabled): moon/sun/satellite tracking, GPS, RTC/clock, master/remote-slave
+  operation (serial or Ethernet), all position sensors other than pulse input and the standard rotary encoder, and
+  all display variants other than 4-bit LCD and the generic I2C LCD. The vendored `libraries/`, `tle/`, and
+  `k3ng_rotator_controller/Nextion/` directories were deleted wholesale since nothing in the active feature set
+  needs them.
+- **Elevation control** (`FEATURE_ELEVATION_CONTROL`) and a handful of other upstream features (Easycom/DCU-1
+  protocol emulation, the AVR stepper-motor pulse-generation code inside the core rotation state machine) are left
+  in place but permanently undefined/unused rather than physically deleted — see "Inert dead code" below for why.
 
-There is no build system, package manifest, or test suite in this repo — it is compiled exclusively via the Arduino
-IDE (or `arduino-cli`) as a sketch.
+Full upstream user documentation lives in the project wiki: https://github.com/k3ng/k3ng_rotator_controller/wiki —
+much of it (tracking, GPS/RTC, master/slave, other sensors/displays) no longer applies to this fork.
 
-## Build / compile / "test"
+## Build / compile / flash
 
-- Open `k3ng_rotator_controller/k3ng_rotator_controller.ino` in the Arduino IDE.
-- Third-party libraries the sketch depends on (HMC5883L, LSM303, RTClib, TimeLib, TimerOne/TimerFive, P13, etc.) live
-  in `libraries/` in this repo and must be copied/symlinked into the Arduino sketchbook `libraries/` folder (or
-  installed via Library Manager) before compiling — they are not fetched automatically.
-- Select the correct board (Uno, Mega, Leonardo/Micro, Teensy, Due, Maple Mini, etc.) in the IDE before verifying —
-  some `#include`s in the .ino (e.g. `CONTROL_PORT_SERIAL_PORT_CLASS` in `rotator_hardware.h`) are board-conditional.
-- "Testing" a change means: verify (compile) the sketch with a representative combination of `FEATURE_`/`OPTION_`
-  defines enabled (see below), and ideally upload to real hardware — there is no unit test harness or CI.
-- Compiling with the wrong combination of features is a common source of errors; the dependency-checking file
-  (`rotator_dependencies.h`) is designed to fail the build early with a clear `#error` when features conflict, rather
-  than fail silently.
+This is a PlatformIO project (`platformio.ini` at repo root, sketch under `src/`).
+
+- `pio run` — compile.
+- `pio run -t upload` — compile and flash to a connected Nano ESP32.
+- `pio device monitor` — serial monitor (9600 baud, matches `CONTROL_PORT_BAUD_RATE`).
+- Before flashing: edit `src/rotator_settings.h` to set `WIFI_SSID`/`WIFI_PASSWORD`, and edit `src/rotator_pins.h` to
+  set `az_position_pulse_pin` (or the rotary encoder pins, if you switch `FEATURE_AZ_POSITION_PULSE_INPUT` for
+  `FEATURE_AZ_POSITION_ROTARY_ENCODER` in `src/rotator_features.h`) to match your actual wiring — these ship as `0`
+  (disabled) or carried-over placeholder values from the original AVR pinout and are marked `TODO` where they need
+  per-build confirmation.
+- "Testing" a change means compiling for the `nano_esp32` PlatformIO env and, ideally, flashing real hardware — there
+  is no unit test harness or CI. There is no way to verify rotation behavior, WiFi control, or LCD output without
+  physical hardware; don't claim a change "works" from static analysis or compilation alone.
 
 ## Architecture
 
 ### Everything is one translation unit, configured at compile time
 
-`k3ng_rotator_controller.ino` (~22k lines) is effectively the entire program. It `#include`s a series of `.h` files
-that are really just extensions of the same file (not independent modules with their own compilation), all guarded
-by preprocessor `#ifdef`/`#if defined(...)` blocks keyed off `FEATURE_*` and `OPTION_*` macros. There is no runtime
-plugin system — enabling/disabling capability is entirely a recompile-time decision. When making changes:
+`src/k3ng_rotator_controller.ino` (~20k lines) is effectively the entire program. It `#include`s a series of `.h`
+files that are really just extensions of the same file (not independent modules with their own compilation), all
+guarded by preprocessor `#ifdef`/`#if defined(...)` blocks keyed off `FEATURE_*` and `OPTION_*` macros. There is no
+runtime plugin system — enabling/disabling capability is entirely a recompile-time decision. When making changes:
 
 - Assume any function or global you touch may be wrapped in `#ifdef FEATURE_X` / `#endif` and only exists in some
   configurations. Grep for the guarding feature before assuming a symbol is always available.
 - New functionality should follow the same pattern: gate it behind a new or existing `FEATURE_`/`OPTION_` macro
   rather than making it unconditional, unless it's a genuine bug fix.
 
-### Configuration file layering
+### Feature configuration
 
-Two independent axes of compile-time configuration, both resolved at the top of the .ino via includes:
+`src/rotator_features.h` is the single place that turns capabilities on/off (there's no more hardware-profile picker
+— `src/rotator_hardware.h` hardcodes `CONTROL_PORT_SERIAL_PORT_CLASS` to `HardwareSerial` for this one board).
+`src/rotator_dependencies.h` cross-checks the resulting combination and emits `#error`s for invalid combinations
+(e.g. must pick exactly one AZ position sensor) — read it before adding a feature flag that interacts with existing
+ones. Pin assignments (`src/rotator_pins.h`) use `0` as the sentinel for "not connected/disabled" — a pin macro must
+be checked against `0`, not just for definedness, in most cases.
 
-1. **Hardware profile** (`rotator_hardware.h`): uncommenting `HARDWARE_M0UPU`, `HARDWARE_WB6KCN`, etc. switches in a
-   matched trio of `rotator_features_<profile>.h` / `rotator_pins_<profile>.h` / `rotator_settings_<profile>.h`
-   instead of the generic `rotator_features.h` / `rotator_pins.h` / `rotator_settings.h`. If any `HARDWARE_*` profile
-   is active, `HARDWARE_CUSTOM` is defined and the generic files are excluded — don't edit the generic files for a
-   profile-based build, edit the profile-specific ones.
-2. **Feature/option flags** (`rotator_features.h`): every capability (protocol emulation, sensors, displays, tracking,
-   master/slave) is a commented-out `#define FEATURE_...` or `#define OPTION_...`. Users uncomment what they need.
-   `rotator_dependencies.h` then cross-checks the resulting combination and emits `#error`s for invalid/incompatible
-   combinations (e.g. can't enable both Yaesu and Easycom emulation, moon/sun tracking requires elevation + clock,
-   etc.) and derives implied macros (e.g. any I2C LCD feature implies `FEATURE_I2C_LCD` implies `FEATURE_WIRE_SUPPORT`).
-   Read `rotator_dependencies.h` before adding a new feature flag that interacts with existing ones.
+### Inert dead code
 
-Pin assignments (`rotator_pins.h`) use `0` as the sentinel for "not connected/disabled" — a pin macro must be checked
-against `0`, not just for definedness, in most cases.
+A large amount of upstream code for removed features (elevation control, moon/sun/satellite tracking, GPS/RTC/clock,
+master/remote-slave, the stepper motor's pulse-generation logic, other position sensors/displays) is still present
+in `src/k3ng_rotator_controller.ino`, deeply interleaved with the core rotation state machine and command processing
+in hundreds of small `#ifdef FEATURE_X` blocks. This is intentional, not an oversight: since none of those `FEATURE_*`
+macros are ever defined in `rotator_features.h`, the preprocessor excludes all of it at zero compile/runtime cost —
+identical in effect to it having been deleted. It was left in place (rather than hand-excised) because it's too
+deeply interleaved with logic this fork *does* use to safely remove by hand without hardware-in-the-loop compile
+testing; removing it further is possible future cleanup, not a correctness requirement. When grepping this file,
+expect to find plenty of `#ifdef FEATURE_MOON_TRACKING` / `FEATURE_MASTER_WITH_SERIAL_SLAVE` / etc. blocks — they are
+dead weight, not bugs.
+
+Only the *large, wholly self-contained* pieces of removed features (standalone functions like the old
+`service_ethernet()`, global variable declarations, settings blocks, vendored library directories) were physically
+deleted, since those could be removed with high confidence and no risk to surrounding logic.
 
 ### Runtime shape
 
-- `setup()` (near the end of the .ino): `initialize_serial()` → `initialize_peripherals()` → `read_settings_from_eeprom()`
-  → `initialize_pins()` → `read_azimuth(0)` → `initialize_display()` → `initialize_rotary_encoders()` →
-  `initialize_interrupts()` → `run_this_once()`.
+- `setup()`: `initialize_serial()` → `initialize_peripherals()` (includes `initialize_wifi()`) →
+  `read_settings_from_eeprom()` → `initialize_pins()` → `read_azimuth(0)` → `initialize_display()` →
+  `initialize_rotary_encoders()` → `initialize_interrupts()` → `run_this_once()`.
 - `loop()` is a long, mostly-flat sequence of `check_*()` / `service_*()` calls, almost every one wrapped in an
   `#ifdef FEATURE_X`. `service_rotation()` and `read_headings()` are called repeatedly throughout the loop (not just
   once) because rotation state and position must stay current across the other, potentially slow, checks.
-- State machines for azimuth/elevation motion (`az_state`, `el_state`) use named constants defined in `rotator.h`
-  (`IDLE`, `SLOW_START_CW`, `NORMAL_CW`, `INITIALIZE_DIR_CHANGE_TO_CW`, etc.) — these encode a multi-step
-  slow-start/normal-rotation/slow-down/direction-change sequence, not simple on/off states.
-- Persistent settings (calibration, last position, park position, autopark, tracking thresholds, stepper motor state)
-  live in the `config_t` struct (in the .ino, near the top after includes) and are saved/loaded from EEPROM; many
-  struct members are themselves behind `#if defined(FEATURE_X)` guards, so the EEPROM layout is configuration-dependent
-  — a struct built with one feature set will not read back correctly under a different one.
-- `rotator.h` centralizes shared macros/constants (state enums, debug process IDs, Nextion API capability bitmasks,
-  request-queue states) used across the whole .ino — check here first when a bare constant is unfamiliar.
-- `rotator_command_processing.h` is currently empty; command parsing for the Yaesu/Easycom/DCU-1 protocols lives
-  directly in the .ino, not in that header.
+  `service_wifi()` is called alongside `check_serial()` — both feed the same `process_yaesu_command()`/
+  `process_backslash_command()` dispatch, distinguished by a `source_port` bitmask (`CONTROL_PORT0` vs `WIFI_PORT0`
+  in `rotator.h`).
+- State machine constants for azimuth motion (`az_state`) live in `rotator.h` (`IDLE`, `SLOW_START_CW`, `NORMAL_CW`,
+  `INITIALIZE_DIR_CHANGE_TO_CW`, etc.) — these encode a multi-step slow-start/normal-rotation/slow-down/
+  direction-change sequence, not simple on/off states. The elevation equivalents (`el_state` and friends) are also
+  defined but unused in this fork's active configuration.
+- Persistent settings (calibration, last position, azimuth display mode) live in the `config_t` struct (in the .ino,
+  near the top after includes) and are saved/loaded from EEPROM. **ESP32's `EEPROM` library is flash-emulated**:
+  `read_settings_from_eeprom()` calls `EEPROM.begin(sizeof(configuration) + 16)` once before any access, and
+  `write_settings_to_eeprom()` calls `EEPROM.commit()` after writing — both were added for this port and don't exist
+  upstream (AVR's real EEPROM needs neither). Many `config_t` members are still behind now-permanently-false
+  `#if defined(FEATURE_X)` guards, so the struct layout matches what upstream would produce with only this fork's
+  active features enabled.
+- `rotator.h` centralizes shared macros/constants (state enums, debug process IDs, request-queue states) used across
+  the whole .ino — check here first when a bare constant is unfamiliar.
 
 ### Supporting files
 
-- `rotator_debug.cpp`/`.h`: `DebugClass`, a thin print/println/write wrapper used for debug output throughout the
+- `src/rotator_debug.cpp`/`.h`: `DebugClass`, a thin print/println/write wrapper used for debug output throughout the
   sketch; `rotator_debug_log_activation.h` controls which debug categories are compiled in.
-- `rotator_k3ngdisplay.cpp`/`.h`: LCD/display abstraction layer supporting several physical display types (classic 4-bit,
-  various I2C LCDs, Nextion) behind a common interface.
-- `rotator_clock_and_gps.h`, `rotator_moon_and_sun.h`, `rotator_stepper.h`, `rotator_ethernet.h`, `rotator_language.h`:
-  each holds the logic (or in the case of `rotator_language.h`, translated string tables) for one optional subsystem;
-  all are only meaningfully populated when their corresponding `FEATURE_*` is enabled.
-- `k3ng_rotator_controller/Nextion/`: pre-built Nextion HMI touchscreen display projects (`.HMI` files) and fonts,
-  used with `FEATURE_NEXTION_DISPLAY` — these are binary display-designer projects, not source to edit directly.
-- `libraries/`: vendored copies of third-party Arduino libraries this sketch depends on (sensor drivers, LCD drivers,
-  timers, RTC, time). Treat these as third-party code — avoid modifying unless fixing a bug that affects this
-  project's usage, since they're otherwise meant to track upstream.
+- `src/rotator_k3ngdisplay.cpp`/`.h`: LCD/display abstraction layer; only the 4-bit and generic-I2C (YWROBOT) paths
+  are wired up in this fork.
 
 ## Working in this repo
 
-- Prefer additive, `#ifdef`-gated changes over restructuring, since any refactor risks silently breaking one of the
-  many hardware/feature combinations that can't all be tested locally.
-- When changing shared/ungated code (e.g. `loop()`'s call sequence, `config_t`, `rotator.h` constants), consider the
-  effect across *all* feature combinations, not just the one you're testing with.
+- Prefer additive, `#ifdef`-gated changes over restructuring — this codebase (and the dead code described above) is
+  fragile to blind refactors that can't be compile-tested against real hardware.
+- When changing shared/ungated code (`loop()`'s call sequence, `config_t`, `rotator.h` constants, the WiFi/serial
+  control-port dispatch), consider the effect on both active AZ-sensor options (pulse input and rotary encoder) and
+  both display options (4-bit LCD and I2C), since either can be toggled on via `rotator_features.h` without other
+  code changes.
 - There's no formatter/linter config in this repo; match the surrounding file's existing indentation and brace style
   exactly rather than reformatting.
