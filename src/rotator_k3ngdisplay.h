@@ -17,17 +17,7 @@
                                                               */
 
 #define FEATURE_4_BIT_LCD_DISPLAY
-// #define FEATURE_ADAFRUIT_I2C_LCD
-// #define FEATURE_YOURDUINO_I2C_LCD
-// #define FEATURE_RFROBOT_I2C_DISPLAY
 // #define FEATURE_YWROBOT_I2C_DISPLAY
-// #define FEATURE_SAINSMART_I2C_LCD
-// #define FEATURE_ADAFRUIT_BUTTONS   
-// #define FEATURE_MIDAS_I2C_DISPLAY
-// #define FEATURE_FABO_LCD_PCF8574_DISPLAY  
-// #define FEATURE_HD44780_I2C_DISPLAY           
-
-// #define OPTION_RFROBOT_I2C_DISPLAY_BACKLIGHT_OFF
 
 #include "rotator_hardware.h"
 
@@ -63,10 +53,6 @@
 #endif
 #if !defined(HARDWARE_CUSTOM)
   #include "rotator_pins.h"
-#endif
-
-#if defined(FEATURE_ADAFRUIT_I2C_LCD)
-  #include "rotator.h"
 #endif
 
 #define K3NG_DISPLAY_LIBRARY_VERSION "2021.10.14.01"
@@ -131,10 +117,6 @@ public:
     void println(char * print_string);
     int length(char * print_string);
     void clear_row(uint8_t row_number);  // clear one entire row
-
-    #if defined(FEATURE_ADAFRUIT_BUTTONS)
-      uint8_t readButtons();
-    #endif   
 
 private:
 

@@ -33,7 +33,7 @@
 
 // #define FEATURE_EL_POSITION_PULSE_INPUT     // only meaningful together with FEATURE_ELEVATION_CONTROL above
 
-/* display - pick one */
+/* display - pick one. NOTE: you must also flip the matching define at the top of rotator_k3ngdisplay.h to match */
 #define FEATURE_4_BIT_LCD_DISPLAY        // classic 4-bit parallel LCD wired directly to GPIO (active default)
 // #define FEATURE_YWROBOT_I2C_DISPLAY   // generic PCF8574 I2C LCD backpack (alternative to 4-bit LCD)
 

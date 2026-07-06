@@ -20,75 +20,11 @@
 #ifdef FEATURE_WIRE_SUPPORT
   #include <Wire.h>
 #endif
-#if defined(FEATURE_ADAFRUIT_I2C_LCD)
-  #include <Adafruit_MCP23017.h>
-  #include <Adafruit_RGBLCDShield.h>
-  Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
-#endif
-#if defined(FEATURE_YOURDUINO_I2C_LCD) || defined(FEATURE_RFROBOT_I2C_DISPLAY) || defined(FEATURE_SAINSMART_I2C_LCD)
-  #include <LiquidCrystal_I2C.h> 
-#endif
-#if defined(FEATURE_YOURDUINO_I2C_LCD)
-  #include <LCD.h>
-#endif  
-#if defined(FEATURE_MIDAS_I2C_DISPLAY)
-  //#include <lcd.h>
-  #include <LCD_C0220BiZ.h>
-  #include <ST7036.h>
-#endif
-#if defined(FEATURE_FABO_LCD_PCF8574_DISPLAY)
-  #include <FaBoLCD_PCF8574.h>
-#endif
-#if defined(FEATURE_HD44780_I2C_DISPLAY)
-  #include <hd44780.h>                       // main hd44780 header
-  #include <hd44780ioClass/hd44780_I2Cexp.h> // i2c expander i/o class header
-#endif  
-
-
-#if defined(FEATURE_YOURDUINO_I2C_LCD)
-  #define I2C_ADDR 0x20
-  #define BACKLIGHT_PIN 3
-  #define LED_OFF 1
-  #define LED_ON 0            
-  LiquidCrystal_I2C  lcd(I2C_ADDR,En_pin,Rw_pin,Rs_pin,D4_pin,D5_pin,D6_pin,D7_pin);
-#endif //FEATURE_YOURDUINO_I2C_LCD
-
-#if defined(FEATURE_RFROBOT_I2C_DISPLAY)
-  LiquidCrystal_I2C lcd(0x27,16,2); 
-  // LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
-#endif //FEATURE_RFROBOT_I2C_DISPLAY
 
 #if defined(FEATURE_YWROBOT_I2C_DISPLAY)
   #include <LiquidCrystal_I2C.h>
-  //LiquidCrystal_I2C lcd(ywrobot_address, ywrobot_pin_en, ywrobot_pin_rw, ywrobot_pin_rs, ywrobot_pin_d4, ywrobot_pin_d5, ywrobot_pin_d6, ywrobot_pin_d7, ywrobot_pin_bl, ywrobot_blpol);  
   LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 #endif //FEATURE_YWROBOT_I2C_DISPLAY
-
-#if defined(FEATURE_SAINSMART_I2C_LCD)
-  #include <LiquidCrystal_I2C.h>
-  #define I2C_ADDR      0x27
-  #define BACKLIGHT_PIN 3
-  #define En_pin        2
-  #define Rw_pin        1
-  #define Rs_pin        0
-  #define D4_pin        4
-  #define D5_pin        5
-  #define D6_pin        6
-  #define D7_pin        7
-  LiquidCrystal_I2C lcd(I2C_ADDR,En_pin,Rw_pin,Rs_pin,D4_pin,D5_pin,D6_pin,D7_pin, BACKLIGHT_PIN, POSITIVE);  
-#endif //FEATURE_SAINSMART_I2C_LCD
-
-#if defined(FEATURE_MIDAS_I2C_DISPLAY)
-  ST7036 lcd = ST7036 ( 2, 16, 120 );
-#endif  
-
-#if defined(FEATURE_FABO_LCD_PCF8574_DISPLAY)
-  FaBoLCD_PCF8574 lcd;
-#endif
-
-#if defined(FEATURE_HD44780_I2C_DISPLAY)
-  hd44780_I2Cexp lcd;
-#endif  
 
 int display_columns = 0;
 uint8_t display_rows = 0;
@@ -128,40 +64,13 @@ K3NGdisplay::K3NGdisplay(int _display_columns, int _display_rows, int _update_ti
 
 void K3NGdisplay::initialize(){
 
-  #if !defined(FEATURE_MIDAS_I2C_DISPLAY)
   lcd.begin(display_columns, display_rows);  // if you are getting an error on this line and do not have
                                              // any of the LCD display features enabled, remove
                                              // k3ngdisplay.h and k3ngdisplay.cpp from your ino directory
-  #endif
-
-  #if defined(FEATURE_MIDAS_I2C_DISPLAY)
-    lcd.init();
-  #endif
-
-  #if defined(FEATURE_FABO_LCD_PCF8574_DISPLAY)
-    lcd.begin(display_columns, display_rows);
-  #endif  
-
-  #ifdef FEATURE_YOURDUINO_I2C_LCD
-    lcd.setBacklightPin(BACKLIGHT_PIN, POSITIVE);
-    lcd.setBacklight(I2C_LCD_COLOR);
-  #endif // FEATURE_YOURDUINO_I2C_LCD
-
-  #ifdef FEATURE_ADAFRUIT_I2C_LCD
-    lcd.setBacklight(I2C_LCD_COLOR);
-  #endif // FEATURE_ADAFRUIT_I2C_LCD
-
-  #ifdef FEATURE_RFROBOT_I2C_DISPLAY
-    #ifdef OPTION_RFROBOT_I2C_DISPLAY_BACKLIGHT_OFF
-      lcd.noBacklight();
-    #else
-      lcd.backlight();
-    #endif
-  #endif
 
   #ifdef FEATURE_4_BIT_LCD_DISPLAY
     lcd.noCursor();
-  #endif  
+  #endif
 
   clear();
 
