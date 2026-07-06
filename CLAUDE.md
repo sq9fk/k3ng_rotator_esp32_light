@@ -16,13 +16,17 @@ trimmed to a single board and a "light" feature set, built with PlatformIO inste
   parallel LCD (with a generic I2C LCD backpack kept available as a compile-time alternative).
 - **Removed outright**, including their source code (not just left disabled): moon/sun/satellite tracking (and the
   Nextion touchscreen display system, which was satellite/tracking-adjacent and equally unused), GPS, RTC/clock,
-  master/remote-slave operation (serial or Ethernet), all position sensors other than pulse input and the standard
-  rotary encoder, and all display variants other than 4-bit LCD and the generic I2C LCD. The vendored `libraries/`,
-  `tle/`, and `k3ng_rotator_controller/Nextion/` directories were deleted wholesale since nothing in the active
-  feature set needs them.
-- **Elevation control** (`FEATURE_ELEVATION_CONTROL`) and a handful of other upstream features (Easycom/DCU-1
-  protocol emulation, the AVR stepper-motor pulse-generation code inside the core rotation state machine) are left
-  in place but permanently undefined/unused rather than physically deleted — see "Inert dead code" below for why.
+  master/remote-slave operation (serial or Ethernet), Easycom/DCU-1 protocol emulation, park/autopark, timed-buffer
+  rotation, joystick control, limit-sense, azimuth/elevation rotation-stall detection, the audible alert, analog
+  output pins, ancillary pin control (`\N`/`\F`/`\W` backslash commands), azimuth/elevation calibration correction,
+  all position sensors other than pulse input and the standard rotary encoder, and all display variants other than
+  4-bit LCD and the generic I2C LCD. The vendored `libraries/`, `tle/`, and `k3ng_rotator_controller/Nextion/`
+  directories were deleted wholesale since nothing in the active feature set needs them.
+- **Kept, deliberately**: `FEATURE_AZ_PRESET_ENCODER`/`FEATURE_EL_PRESET_ENCODER` (rotary-encoder azimuth/elevation
+  preset support) and their `check_az_preset_potentiometer()`/`check_preset_encoders()` code are inactive in the
+  current `rotator_features.h` but were intentionally *not* removed during cleanup — leave this code in place.
+- **Elevation control** (`FEATURE_ELEVATION_CONTROL`) is left in place but permanently undefined/unused rather than
+  physically deleted — see "Inert dead code" below for why.
 
 Full upstream user documentation lives in the project wiki: https://github.com/k3ng/k3ng_rotator_controller/wiki —
 much of it (tracking, GPS/RTC, master/slave, other sensors/displays) no longer applies to this fork.
@@ -47,7 +51,7 @@ This is a PlatformIO project (`platformio.ini` at repo root, sketch under `src/`
 
 ### Everything is one translation unit, configured at compile time
 
-`src/k3ng_rotator_controller.ino` (~13.6k lines) is effectively the entire program. It `#include`s a series of `.h`
+`src/k3ng_rotator_controller.ino` (~11.8k lines) is effectively the entire program. It `#include`s a series of `.h`
 files that are really just extensions of the same file (not independent modules with their own compilation), all
 guarded by preprocessor `#ifdef`/`#if defined(...)` blocks keyed off `FEATURE_*` and `OPTION_*` macros. There is no
 runtime plugin system — enabling/disabling capability is entirely a recompile-time decision. When making changes:
@@ -68,25 +72,31 @@ be checked against `0`, not just for definedness, in most cases.
 
 ### Inert dead code
 
-Most removed features (moon/sun/satellite tracking, the Nextion display, GPS/RTC/clock, master/remote-slave,
-Ethernet, most position sensors and display variants, the A2 absolute encoder, most of the stepper motor driver)
-were physically deleted from `src/k3ng_rotator_controller.ino`, not just left disabled — including their standalone
-service functions, global declarations, settings blocks, and `loop()`/`setup()` call sites. This was done
-incrementally with a `pio run` compile check after nearly every deletion, which is what made it safe to remove code
-that's woven into shared functions (a dangling reference shows up as a compile error immediately, e.g. missing
-libraries, undefined macros): several sensor blocks inside `read_azimuth()`, tracking blocks inside
-`process_backslash_command()` and `update_lcd_display()`, and a few standalone elevation-only functions
-(`read_elevation()`) were removed this way once the compiler confirmed no other code depended on them.
+Almost every removed feature (moon/sun/satellite tracking, the Nextion display, GPS/RTC/clock, master/remote-slave,
+Ethernet, Easycom/DCU-1 emulation, park/autopark, timed-buffer, joystick, limit-sense, rotation-stall detection,
+audible alert, analog output pins, ancillary pin control, azimuth/elevation calibration correction, most position
+sensors and display variants, the A2 absolute encoder, most of the stepper motor driver) was physically deleted from
+`src/k3ng_rotator_controller.ino`, not just left disabled — including standalone service functions, global
+declarations, settings blocks, and `loop()`/`setup()` call sites. This was done incrementally with a `pio run`
+compile check after nearly every deletion, which is what made it safe to remove code woven into shared functions (a
+dangling reference shows up as a compile error immediately — missing libraries, undefined macros, etc.): sensor
+blocks inside `read_azimuth()`, tracking blocks inside `process_backslash_command()`/`update_lcd_display()`, the
+Easycom/DCU-1 parsing branches inside `check_serial()`, and several elevation-only functions
+(`read_elevation()`, `current_el_state()`, `el_check_operation_timeout()`, `update_el_variable_outputs()`,
+`el_position_pulse_interrupt_handler()`, the elevation-button section of `check_buttons()`) were all removed this way
+once the compiler confirmed no other code depended on them.
 
-**Elevation control** (`FEATURE_ELEVATION_CONTROL`) is the one major exception, left in place but permanently
-undefined rather than excised: unlike the features above, its code is deeply interleaved *inside* shared functions
-that this fork's azimuth-only configuration does use (`service_rotation()`, `check_buttons()`, `read_headings()`,
-etc.), often as single-line conditionals inside larger active logic rather than clean standalone blocks. A handful of
-small, low-value remnants (Easycom/DCU-1 protocol emulation branches, a few scattered debug/display conditionals)
-were left for the same reason. Since none of these `FEATURE_*` macros are ever defined in `rotator_features.h`, the
-preprocessor excludes all of it at zero compile/runtime cost — identical in effect to deletion, just not physically
-gone from the file. When grepping this file, expect to still find occasional `#ifdef FEATURE_ELEVATION_CONTROL` /
-`FEATURE_EASYCOM_EMULATION` blocks — they are dead weight, not bugs.
+**Elevation control** (`FEATURE_ELEVATION_CONTROL`) is the one substantial exception remaining, left in place but
+permanently undefined rather than fully excised: what's left of it is genuinely interleaved *inside* shared functions
+that this fork's azimuth-only configuration does use (`rotator()`, `service_rotation()`, `read_headings()`, the `\W`
+timed-buffer command, etc.), as single-line conditionals inside much larger active logic rather than clean standalone
+blocks — removing it would mean restructuring those functions, not deleting dead text. A few equally-interleaved
+remnants of other removed features share this fate (e.g. a `row_override`/`parsed_elevation` pair that's now
+"set but not used" rather than fully dead — see git history for details). `FEATURE_AZ_PRESET_ENCODER`/
+`FEATURE_EL_PRESET_ENCODER` are inactive but were deliberately *not* touched (kept for potential future use, not a
+removal candidate). Since none of the genuinely-dead `FEATURE_*` macros above are ever defined in
+`rotator_features.h`, the preprocessor excludes all of it at zero compile/runtime cost regardless of whether it was
+physically deleted or left inert — deleting it further is a readability nice-to-have, not a correctness fix.
 
 ### Runtime shape
 
