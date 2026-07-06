@@ -2799,8 +2799,7 @@ void check_serial(){
   #endif  
 
   static unsigned long serial_led_time = 0;
-  float tempfloat = 0;
-  char return_string[100] = ""; 
+  char return_string[100] = "";
   static byte received_backslash = 0;
 
   #if defined(FEATURE_GPS)
@@ -2826,10 +2825,6 @@ void check_serial(){
     char grid[10] = "";
     byte hit_error = 0;
   #endif // defined(FEATURE_MOON_TRACKING) || defined(FEATURE_SUN_TRACKING)
-
-  #if defined(FEATURE_AZ_POSITION_ROTARY_ENCODER) || defined(FEATURE_AZ_POSITION_PULSE_INPUT) || defined(FEATURE_AZ_POSITION_ROTARY_ENCODER_USE_PJRC_LIBRARY)
-    float new_azimuth = 9999;
-  #endif
 
   #if defined(FEATURE_ELEVATION_CONTROL) && (defined(FEATURE_EL_POSITION_ROTARY_ENCODER) || defined(FEATURE_EL_POSITION_PULSE_INPUT) || defined(FEATURE_EL_POSITION_ROTARY_ENCODER_USE_PJRC_LIBRARY))
     float new_elevation = 9999;
@@ -4558,8 +4553,6 @@ float float_map(float x, float in_min, float in_max, float out_min, float out_ma
 
 void convert_raw_azimuth_to_real_azimuth(){
 
-  float temp_azimuth = raw_azimuth;
-
   if (raw_azimuth >= 360){
     azimuth = raw_azimuth - float(int(raw_azimuth / 360) * 360.0);
   } else {
@@ -4576,7 +4569,6 @@ void convert_raw_azimuth_to_real_azimuth(){
 
 void read_azimuth(byte force_read){
 
-  unsigned int previous_raw_azimuth = raw_azimuth;
   static unsigned long last_measurement_time = 0;
 
   if (heading_reading_inhibit_pin) {
@@ -9090,7 +9082,6 @@ float calculate_target_bearing(float source_latitude,float source_longitude,floa
 
   float teta1 = radians(source_latitude);
   float teta2 = radians(target_latitude);
-  float delta1 = radians(target_latitude-source_latitude);
   float delta2 = radians(target_longitude-source_longitude);
 
   
@@ -9217,13 +9208,9 @@ void strconditionalcpy(char *__dst, const char *__src, byte do_it){
 byte process_backslash_command(byte input_buffer[], int input_buffer_index, byte source_port, byte include_response_code, char * return_string, byte input_source){
 
   strcpy(return_string,"");
-  static unsigned long serial_led_time = 0;
   float tempfloat = 0;
   byte hit_decimal = 0;
-  long place_multiplier = 0;
-  byte decimalplace = 0;
   byte x = 0;
-  int temp_int = 0;
 
   #if defined(FEATURE_PARK) && defined(FEATURE_NEXTION_DISPLAY)
     char workstring1[32];
@@ -9276,8 +9263,6 @@ byte process_backslash_command(byte input_buffer[], int input_buffer_index, byte
   #if defined(FEATURE_AUTOPARK)
     byte valid_input_autopark = 0;
   #endif  
-
-  float new_azimuth_starting_point;
 
   byte brake_az_disabled;
 
