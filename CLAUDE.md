@@ -51,7 +51,7 @@ This is a PlatformIO project (`platformio.ini` at repo root, sketch under `src/`
 
 ### Everything is one translation unit, configured at compile time
 
-`src/k3ng_rotator_controller.ino` (~11.8k lines) is effectively the entire program. It `#include`s a series of `.h`
+`src/k3ng_rotator_controller.ino` (~10k lines) is effectively the entire program. It `#include`s a series of `.h`
 files that are really just extensions of the same file (not independent modules with their own compilation), all
 guarded by preprocessor `#ifdef`/`#if defined(...)` blocks keyed off `FEATURE_*` and `OPTION_*` macros. There is no
 runtime plugin system — enabling/disabling capability is entirely a recompile-time decision. When making changes:
