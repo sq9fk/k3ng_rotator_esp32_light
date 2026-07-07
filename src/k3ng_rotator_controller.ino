@@ -1657,7 +1657,11 @@ void loop() {
   #endif
 
   #ifdef FEATURE_LCD_DISPLAY
-    update_lcd_display();
+    static unsigned long last_lcd_display_update_time = 0;
+    if ((millis() - last_lcd_display_update_time) >= 250) {
+      update_lcd_display();
+      last_lcd_display_update_time = millis();
+    }
   #endif
 
   #ifdef OPTION_MORE_SERIAL_CHECKS
@@ -3855,7 +3859,9 @@ void read_azimuth(byte force_read){
 
         convert_raw_azimuth_to_real_azimuth();
 
-        configuration_dirty = 1;  // TODO: a better way to handle configuration writes; these are very frequent
+        if (az_state == IDLE) {  // while actively rotating, avoid flash-wearing EEPROM writes on every step; final position is marked dirty once when rotation stops
+          configuration_dirty = 1;
+        }
       }
     #endif // FEATURE_AZ_POSITION_ROTARY_ENCODER
 
@@ -3884,7 +3890,9 @@ void read_azimuth(byte force_read){
   //        }
         #endif // DEBUG_POSITION_PULSE_INPUT
         configuration.last_azimuth = az_position_pulse_input_azimuth;
-        configuration_dirty = 1;
+        if (az_state == IDLE) {  // while actively rotating, avoid flash-wearing EEPROM writes on every pulse; final position is marked dirty once when rotation stops
+          configuration_dirty = 1;
+        }
         last_az_position_pulse_input_azimuth = az_position_pulse_input_azimuth;
         raw_azimuth = configuration.last_azimuth;
         #ifdef FEATURE_AZIMUTH_CORRECTION
@@ -5541,6 +5549,8 @@ void service_rotation(){
 
   static byte az_direction_change_flag = 0;
   static byte az_initial_slow_down_voltage = 0;
+  static byte az_stop_pending = 0;
+  static unsigned long az_stop_pending_time = 0;
 
   #ifdef FEATURE_ELEVATION_CONTROL
     static byte el_direction_change_flag = 0;
@@ -5689,6 +5699,7 @@ void service_rotation(){
       } else {
         az_state = IDLE;
         az_request_queue_state = NONE;
+        configuration_dirty = 1;
 
         #if defined(FEATURE_AUDIBLE_ALERT)
           if (configuration.audible_alert_enabled_az_target){
@@ -5767,13 +5778,16 @@ void service_rotation(){
   if ((az_state != IDLE) && (az_request_queue_state == IN_PROGRESS_TO_TARGET) ) {
     if ((az_state == NORMAL_CW) || (az_state == SLOW_START_CW) || (az_state == SLOW_DOWN_CW)) {
       if ((abs(raw_azimuth - target_raw_azimuth) < (AZIMUTH_TOLERANCE)) || ((raw_azimuth > target_raw_azimuth) && ((raw_azimuth - target_raw_azimuth) < ((AZIMUTH_TOLERANCE + 5))))) {
-        delay(50);
-        read_azimuth(0);
-        if ((abs(raw_azimuth - target_raw_azimuth) < (AZIMUTH_TOLERANCE)) || ((raw_azimuth > target_raw_azimuth) && ((raw_azimuth - target_raw_azimuth) < ((AZIMUTH_TOLERANCE + 5))))) {
+        if (!az_stop_pending) {
+          az_stop_pending = 1;
+          az_stop_pending_time = millis();
+        } else if ((millis() - az_stop_pending_time) >= 50) {
           rotator(DEACTIVATE, CW, 10);
           rotator(DEACTIVATE, CCW, 10);
           az_state = IDLE;
           az_request_queue_state = NONE;
+          az_stop_pending = 0;
+          configuration_dirty = 1;
           #ifdef DEBUG_SERVICE_ROTATION
             debug.print("service_rotation: IDLE");
           #endif // DEBUG_SERVICE_ROTATION
@@ -5797,16 +5811,21 @@ void service_rotation(){
           #endif
 
         }
+      } else {
+        az_stop_pending = 0;
       }
     } else {
       if ((abs(raw_azimuth - target_raw_azimuth) < (AZIMUTH_TOLERANCE)) || ((raw_azimuth < target_raw_azimuth) && ((target_raw_azimuth - raw_azimuth) < ((AZIMUTH_TOLERANCE + 5))))) {
-        delay(50);
-        read_azimuth(0);
-        if ((abs(raw_azimuth - target_raw_azimuth) < (AZIMUTH_TOLERANCE)) || ((raw_azimuth < target_raw_azimuth) && ((target_raw_azimuth - raw_azimuth) < ((AZIMUTH_TOLERANCE + 5))))) {
+        if (!az_stop_pending) {
+          az_stop_pending = 1;
+          az_stop_pending_time = millis();
+        } else if ((millis() - az_stop_pending_time) >= 50) {
           rotator(DEACTIVATE, CW, 11);
           rotator(DEACTIVATE, CCW, 11);
           az_state = IDLE;
           az_request_queue_state = NONE;
+          az_stop_pending = 0;
+          configuration_dirty = 1;
           #ifdef DEBUG_SERVICE_ROTATION
             debug.print("service_rotation: IDLE");
           #endif // DEBUG_SERVICE_ROTATION
@@ -5830,6 +5849,8 @@ void service_rotation(){
           #endif
 
         }
+      } else {
+        az_stop_pending = 0;
       }
     }
   }
@@ -6168,6 +6189,7 @@ void service_request_queue(){
               rotator(DEACTIVATE, CCW, 19);
               az_state = IDLE;
               az_request_queue_state = NONE;
+              configuration_dirty = 1;
             }
             if ((az_state == SLOW_START_CW) || (az_state == NORMAL_CW)) {
               az_state = INITIALIZE_TIMED_SLOW_DOWN_CW;
@@ -6185,6 +6207,7 @@ void service_request_queue(){
             rotator(DEACTIVATE, CCW, 20);
             az_state = IDLE;
             az_request_queue_state = NONE;
+            configuration_dirty = 1;
           }
         } else {
           az_request_queue_state = NONE; // nothing to do - we clear the queue
@@ -6302,7 +6325,8 @@ void service_request_queue(){
             rotator(DEACTIVATE, CW, 21);
             rotator(DEACTIVATE, CCW, 21);
             az_state = IDLE;
-            az_request_queue_state = NONE;         
+            az_request_queue_state = NONE;
+            configuration_dirty = 1;
             return;
           }
         }
@@ -6482,6 +6506,7 @@ void service_request_queue(){
         rotator(DEACTIVATE, CCW, 26);
         az_state = IDLE;
         az_request_queue_state = NONE;
+        configuration_dirty = 1;
         #ifdef DEBUG_SERVICE_REQUEST_QUEUE
         debug.println("");
         #endif // DEBUG_SERVICE_REQUEST_QUEUE
