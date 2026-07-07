@@ -2666,7 +2666,7 @@ void check_serial(){
   #endif  
 
   static unsigned long serial_led_time = 0;
-  char return_string[100] = "";
+  char return_string[100];  // cleared by process_yaesu_command()/process_backslash_command() themselves, not needed here
   static byte received_backslash = 0;
 
   #if defined(FEATURE_GPS)
@@ -2738,21 +2738,21 @@ void check_serial(){
 
     #if defined(FEATURE_YAESU_EMULATION) || defined(FEATURE_REMOTE_UNIT_SLAVE)  
 
-        if ((incoming_serial_byte != 10) && (incoming_serial_byte != 13)) { // add it to the buffer if it's not a line feed or carriage return
+        if ((incoming_serial_byte != 10) && (incoming_serial_byte != 13) && (control_port_buffer_index < COMMAND_BUFFER_SIZE)) { // add it to the buffer if it's not a line feed or carriage return
           control_port_buffer[control_port_buffer_index] = incoming_serial_byte;
           control_port_buffer_index++;
-      
+
         }
 
         if (incoming_serial_byte == '\\'){
           received_backslash = 1;
-        }     
+        }
 
         if (received_backslash){
           control_port->write(incoming_serial_byte);
         }
 
-        if (incoming_serial_byte == 13) {  // do we have a carriage return?
+        if ((incoming_serial_byte == 13) || (control_port_buffer_index >= COMMAND_BUFFER_SIZE)) {  // do we have a carriage return, or is the buffer full?
           if ((control_port_buffer[0] == '\\') || (control_port_buffer[0] == '/')) {
             received_backslash = 0;
             control_port->println();
@@ -9754,7 +9754,7 @@ void service_wifi(){
   #endif // DEBUG_LOOP
 
   byte incoming_byte = 0;
-  char return_string[100] = "";
+  char return_string[100];  // cleared by process_yaesu_command()/process_backslash_command() themselves, not needed here
   static byte first_connect_occurred = 0;
   static long last_received_byte0 = 0;
 
