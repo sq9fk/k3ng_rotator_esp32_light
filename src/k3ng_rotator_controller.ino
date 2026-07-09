@@ -1314,6 +1314,9 @@ struct config_t {
 #ifdef FEATURE_AZ_POSITION_PULSE_INPUT
   volatile float az_position_pulse_input_azimuth = 0;
   volatile byte last_known_az_state = 0;
+  #ifdef OPTION_AZ_PULSE_DEBOUNCE
+    unsigned long last_az_pulse_debounce = 0;
+  #endif //OPTION_AZ_PULSE_DEBOUNCE
 #endif // FEATURE_AZ_POSITION_PULSE_INPUT
 
 #ifdef FEATURE_EL_POSITION_PULSE_INPUT
@@ -2828,7 +2831,11 @@ void check_buttons(){
 
   #ifdef DEBUG_PROCESSES
     service_process_debug(DEBUG_PROCESSES_PROCESS_ENTER,PROCESS_CHECK_BUTTONS);
-  #endif  
+  #endif
+
+  #ifndef FEATURE_ADAFRUIT_BUTTONS
+    static unsigned long az_button_release_pending_time = 0;  // 0 = no release debounce in progress (non-blocking replacement for delay(200))
+  #endif // FEATURE_ADAFRUIT_BUTTONS
 
   #ifdef FEATURE_ADAFRUIT_BUTTONS
     int buttons = 0;
@@ -2901,21 +2908,28 @@ void check_buttons(){
 
 #else
   if ((azimuth_button_was_pushed) && (digitalReadEnhanced(button_ccw) == BUTTON_INACTIVE_STATE) && (digitalReadEnhanced(button_cw) == BUTTON_INACTIVE_STATE)) {
-    delay(200);
-    if ((digitalReadEnhanced(button_ccw) == BUTTON_INACTIVE_STATE) && (digitalReadEnhanced(button_cw) == BUTTON_INACTIVE_STATE)) {
-    #ifdef DEBUG_BUTTONS
-      debug.println("check_buttons: no AZ button depressed");
-    #endif // DEBUG_BUTTONS
-    #ifndef OPTION_BUTTON_RELEASE_NO_SLOWDOWN
-    submit_request(AZ, REQUEST_STOP, 0, DBG_CHECK_BUTTONS_RELEASE_NO_SLOWDOWN);
-    #if defined(FEATURE_LCD_DISPLAY)
-      perform_screen_redraw = 1;
-    #endif    
-    #else
-    submit_request(AZ, REQUEST_KILL, 0, DBG_CHECK_BUTTONS_RELEASE_KILL);
-    #endif // OPTION_BUTTON_RELEASE_NO_SLOWDOWN
-    azimuth_button_was_pushed = 0;
+    if (az_button_release_pending_time == 0) {
+      az_button_release_pending_time = millis();
+      if (az_button_release_pending_time == 0) {az_button_release_pending_time = 1;}  // avoid colliding with the "not pending" sentinel value
+    } else {
+      if ((millis() - az_button_release_pending_time) > 200) {  // non-blocking replacement for delay(200) - buttons have now read inactive for >200mS
+        #ifdef DEBUG_BUTTONS
+          debug.println("check_buttons: no AZ button depressed");
+        #endif // DEBUG_BUTTONS
+        #ifndef OPTION_BUTTON_RELEASE_NO_SLOWDOWN
+        submit_request(AZ, REQUEST_STOP, 0, DBG_CHECK_BUTTONS_RELEASE_NO_SLOWDOWN);
+        #if defined(FEATURE_LCD_DISPLAY)
+          perform_screen_redraw = 1;
+        #endif
+        #else
+        submit_request(AZ, REQUEST_KILL, 0, DBG_CHECK_BUTTONS_RELEASE_KILL);
+        #endif // OPTION_BUTTON_RELEASE_NO_SLOWDOWN
+        azimuth_button_was_pushed = 0;
+        az_button_release_pending_time = 0;
+      }
     }
+  } else {
+    az_button_release_pending_time = 0;  // button re-pressed (or wasn't pushed) - cancel any pending release debounce
   }
 #endif // FEATURE_ADAFRUIT_BUTTONS
 
@@ -6801,6 +6815,35 @@ void az_position_pulse_interrupt_handler(){
   az_pulse_counter++;
   #endif // DEBUG_POSITION_PULSE_INPUT
 
+  #ifdef OPTION_AZ_PULSE_DEBOUNCE //---------------------------------------------
+  if ((millis()-last_az_pulse_debounce) > AZ_POSITION_PULSE_DEBOUNCE) {
+    if (current_az_state() == ROTATING_CW) {
+      az_position_pulse_input_azimuth += (float)AZ_POSITION_PULSE_DEG_PER_PULSE;
+      last_known_az_state = ROTATING_CW;
+    } else {
+      if (current_az_state() == ROTATING_CCW) {
+        az_position_pulse_input_azimuth -= (float)AZ_POSITION_PULSE_DEG_PER_PULSE;
+        last_known_az_state = ROTATING_CCW;
+      } else {
+        #ifndef OPTION_PULSE_IGNORE_AMBIGUOUS_PULSES
+        if (last_known_az_state == ROTATING_CW) {
+          az_position_pulse_input_azimuth += (float)AZ_POSITION_PULSE_DEG_PER_PULSE;
+        } else {
+          if (last_known_az_state == ROTATING_CCW) {
+            az_position_pulse_input_azimuth -= (float)AZ_POSITION_PULSE_DEG_PER_PULSE;
+          }
+        }
+        #endif // OPTION_PULSE_IGNORE_AMBIGUOUS_PULSES
+        #ifdef DEBUG_POSITION_PULSE_INPUT
+        az_pulse_counter_ambiguous++;
+        #endif // DEBUG_POSITION_PULSE_INPUT
+      }
+    }
+    last_az_pulse_debounce = millis();
+  }
+
+  #else //OPTION_AZ_PULSE_DEBOUNCE -----------------------
+
   if (current_az_state() == ROTATING_CW) {
     az_position_pulse_input_azimuth += (float)AZ_POSITION_PULSE_DEG_PER_PULSE;
     last_known_az_state = ROTATING_CW;
@@ -6823,6 +6866,7 @@ void az_position_pulse_interrupt_handler(){
             #endif // DEBUG_POSITION_PULSE_INPUT
     }
   }
+  #endif //OPTION_AZ_PULSE_DEBOUNCE --------------------------
 
   #ifdef OPTION_AZ_POSITION_PULSE_HARD_LIMIT
     if (az_position_pulse_input_azimuth < configuration.azimuth_starting_point) {

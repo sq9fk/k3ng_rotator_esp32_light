@@ -70,6 +70,29 @@ runtime plugin system — enabling/disabling capability is entirely a recompile-
 ones. Pin assignments (`src/rotator_pins.h`) use `0` as the sentinel for "not connected/disabled" — a pin macro must
 be checked against `0`, not just for definedness, in most cases.
 
+### Fork-added fixes (ported from the sibling AVR/RemoteQTH fork, not upstream)
+
+- **`check_buttons()` no longer blocks on manual button release.** Upstream debounces the CW/CCW jog-button release
+  with a blocking `delay(200)` — the whole `loop()` (including `service_wifi()`) stalls for 200ms every release. Now a
+  non-blocking `millis()`-based timer (`az_button_release_pending_time`, static local in `check_buttons()`): the first
+  iteration both buttons read inactive starts the timer instead of blocking, the stop request only fires once 200ms
+  have elapsed *across* iterations, and a re-press in the meantime cancels the pending timer. Same 200ms window and
+  behavior, just non-blocking. (`clear_serial_buffer()`'s `delay(200)` was left alone — it's only called from rare
+  command-processing paths, not every loop iteration, a different risk profile.)
+- **`OPTION_AZ_PULSE_DEBOUNCE`/`AZ_POSITION_PULSE_DEBOUNCE`** (`rotator_features.h`/`rotator_settings.h`, 20ms default):
+  this board's AZ pulse sensor is a mechanical reed switch/contactron (bounce-prone), and upstream only has pulse
+  debounce for elevation (`OPTION_EL_PULSE_DEBOUNCE`, dead here since elevation is off). Ported the same pattern to
+  azimuth in `az_position_pulse_interrupt_handler()`. **Don't copy EL's 500ms default** — at
+  `AZ_POSITION_PULSE_DEG_PER_PULSE` = 0.5°, a fast-moving rotator generates real pulses faster than every 500ms, and a
+  debounce window longer than the real inter-pulse gap silently drops genuine pulses. Keep it well below the shortest
+  real gap between pulses at full rotation speed.
+- **`OPTION_DISPLAY_HEADING` is disabled, only `OPTION_DISPLAY_HEADING_AZ_ONLY` is active.** With elevation off,
+  upstream's generic `OPTION_DISPLAY_HEADING` also degrades to an azimuth-only branch — so both options together
+  wrote the same azimuth value to the LCD twice every refresh cycle (row 2 via the generic path, row 1 via the
+  dedicated path), wasting row 2 on a duplicate of row 1 instead of leaving it free. `LCD_COLUMNS`/`LCD_ROWS` are
+  16/2 (a real 16x2 LCD) and `LCD_HEADING_FIELD_SIZE`/`LCD_AZ_ONLY_HEADING_FIELD_SIZE`/`LCD_STATUS_FIELD_SIZE` are all
+  16 to match — don't reintroduce the 20-column-display-era field sizes.
+
 ### Inert dead code
 
 Almost every removed feature (moon/sun/satellite tracking, the Nextion display, GPS/RTC/clock, master/remote-slave,

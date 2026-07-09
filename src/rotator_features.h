@@ -63,10 +63,11 @@
 #define OPTION_AZ_POSITION_PULSE_HARD_LIMIT  // stop azimuth at lower and upper limit rather than rolling over
 #define OPTION_POSITION_PULSE_INPUT_PULLUPS  // define to enable weak pullups on position pulse inputs
 // #define OPTION_PULSE_IGNORE_AMBIGUOUS_PULSES // ignore pulses that arrive when no rotation is active
+#define OPTION_AZ_PULSE_DEBOUNCE  // fork-added (not upstream): debounces a reed-switch/contactron AZ pulse sensor - see AZ_POSITION_PULSE_DEBOUNCE in rotator_settings.h
 
 /* display options */
 #define OPTION_DISPLAY_STATUS
-#define OPTION_DISPLAY_HEADING
+// #define OPTION_DISPLAY_HEADING  // disabled: redundant with OPTION_DISPLAY_HEADING_AZ_ONLY below - with elevation off, both wrote azimuth every cycle (to LCD_HEADING_ROW and LCD_AZ_ONLY_HEADING_ROW respectively), duplicating the same number to two rows every refresh
 #define OPTION_DISPLAY_HEADING_AZ_ONLY
 // #define OPTION_DISPLAY_DIRECTION_STATUS   // LCD N, W, E, S, NW, etc. direction indicator
 #define OPTION_DISPLAY_VERSION_ON_STARTUP  // code provided by Paolo, IT9IPQ
